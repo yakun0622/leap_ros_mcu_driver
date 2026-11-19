@@ -148,6 +148,9 @@ jobs:
 
           shutil.copy2(merged_src, merged_dst)
           shutil.copy2(app_src, app_dst)
+          upgrade_script_src = pathlib.Path("scripts/upgrade_mcu.sh")
+          if upgrade_script_src.is_file():
+              shutil.copy2(upgrade_script_src, dist_dir / "upgrade_mcu.sh")
 
           flasher_args_path = build_dir / "flasher_args.json"
           app_offset = "0x10000"
