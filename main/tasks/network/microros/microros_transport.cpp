@@ -71,6 +71,7 @@ static bool ensure_uart_driver_initialized(UartTransportContext *ctx) {
     }
 
     if (s_uart_transport_initialized && uart_is_driver_installed(ctx->port)) {
+        uart_flush_input(ctx->port);
         return true;
     }
 

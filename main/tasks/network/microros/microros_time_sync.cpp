@@ -13,6 +13,7 @@ constexpr const char *kTag = "microros_time";
 bool s_have_sync = false;
 bool s_sync_failed = false;
 bool s_stamp_paused = false;
+uint32_t s_consecutive_failures = 0;
 int64_t s_next_sync_us = 0;
 int64_t s_sync_us = 0;
 int64_t s_epoch_ms = 0;
@@ -24,6 +25,7 @@ void reset_time_sync() {
     s_have_sync = false;
     s_sync_failed = false;
     s_stamp_paused = false;
+    s_consecutive_failures = 0;
     s_next_sync_us = 0;
     s_sync_us = 0;
     s_epoch_ms = 0;
@@ -42,6 +44,9 @@ void update_time_sync(int timeout_ms) {
     const int64_t epoch_ms = rmw_uros_epoch_millis();
     if (ret != RMW_RET_OK || !rmw_uros_epoch_synchronized() || epoch_ms <= 0) {
         s_next_sync_us = now_us + static_cast<int64_t>(cfg::kTimeSyncRetryIntervalMs) * 1000;
+        if (s_consecutive_failures < UINT32_MAX) {
+            ++s_consecutive_failures;
+        }
         if (!s_sync_failed) {
             ESP_LOGW(kTag, "Agent time sync failed; retrying every %u ms",
                      static_cast<unsigned>(cfg::kTimeSyncRetryIntervalMs));
@@ -65,9 +70,14 @@ void update_time_sync(int timeout_ms) {
     // failed exchange (or a late reply) must not replace this usable mapping.
     s_have_sync = true;
     s_sync_failed = false;
+    s_consecutive_failures = 0;
     s_sync_us = now_us;
     s_epoch_ms = epoch_ms;
     s_next_sync_us = now_us + static_cast<int64_t>(cfg::kTimeSyncIntervalMs) * 1000;
+}
+
+uint32_t consecutive_time_sync_failures() {
+    return s_consecutive_failures;
 }
 
 bool get_synced_stamp_ms(int64_t &stamp_ms) {

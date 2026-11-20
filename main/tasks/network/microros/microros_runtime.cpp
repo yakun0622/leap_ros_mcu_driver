@@ -394,6 +394,25 @@ static bool spin_once(int timeout_ms) {
     return true;
 }
 
+static vprintf_like_t s_saved_log_vprintf = nullptr;
+static bool s_uart_log_muted = false;
+
+static int muted_log_vprintf(const char *, va_list) {
+    return 0;
+}
+
+static void set_uart_console_log_muted(bool muted) {
+    if (muted && !s_uart_log_muted) {
+        s_saved_log_vprintf = esp_log_set_vprintf(&muted_log_vprintf);
+        s_uart_log_muted = true;
+    } else if (!muted && s_uart_log_muted) {
+        if (s_saved_log_vprintf != nullptr) {
+            esp_log_set_vprintf(s_saved_log_vprintf);
+        }
+        s_uart_log_muted = false;
+    }
+}
+
 }  // namespace microros
 
 void microros_runtime_loop(void) {
@@ -411,6 +430,8 @@ void microros_runtime_loop(void) {
     while (1) {
         const bool use_udp = system_globals().runtime.wifi_comm_mode == WifiCommMode::kMicroRos;
         const bool use_uart = system_globals().runtime.wifi_comm_mode == WifiCommMode::kMicroRosUart;
+        set_uart_console_log_muted(use_uart);
+
         if (use_udp || use_uart) {
             if (!s_ros_created) {
                 const bool transport_ready = use_uart ? setup_uart_transport() : setup_udp_transport();
@@ -433,6 +454,16 @@ void microros_runtime_loop(void) {
                 }
             }
             update_time_sync(ros_cfg::kTimeSyncRuntimeTimeoutMs);
+            const uint32_t max_sync_failures = use_uart
+                ? ros_cfg::kUartSessionReconnectFailures
+                : ros_cfg::kUdpSessionReconnectFailures;
+            if (consecutive_time_sync_failures() >= max_sync_failures) {
+                ESP_LOGW(kTag, "micro-ROS agent unresponsive (%u sync failures); recreating session",
+                         static_cast<unsigned>(consecutive_time_sync_failures()));
+                destroy_ros_entities();
+                vTaskDelay(pdMS_TO_TICKS(500));
+                continue;
+            }
             if (!spin_once(ros_cfg::kPublishPeriodMs)) {
                 ESP_LOGW(kTag, "micro-ROS transport stopped; recreating session");
                 destroy_ros_entities();

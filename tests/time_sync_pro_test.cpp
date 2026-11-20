@@ -77,16 +77,21 @@ int main() {
 
     // Failed/late exchanges cannot overwrite the last confirmed mapping.
     reset(); update();
+    assert(microros::consecutive_time_sync_failures() == 0);
     at_ms(5000); result = RMW_RET_ERROR; synchronized = false;
     agent_offset_ms += 900000; update();
+    assert(microros::consecutive_time_sync_failures() == 1);
     assert(stamp() == kEpochMs + 5000);
     at_ms(5999); update(); assert(calls == 2);
+    assert(microros::consecutive_time_sync_failures() == 1);
     assert(stamp() == kEpochMs + 5999);
     at_ms(6000); update(); assert(calls == 3);
+    assert(microros::consecutive_time_sync_failures() == 2);
     at_ms(29999); assert(stamp() == kEpochMs + 29999);
     at_ms(30000); expect_paused();
     result = RMW_RET_OK; synchronized = true; agent_offset_ms = kEpochMs;
     update(); assert(stamp() == kEpochMs + 30000);
+    assert(microros::consecutive_time_sync_failures() == 0);
 
     // Reconnection must require a new exchange, even with a stale true flag.
     microros::reset_time_sync(); expect_paused();
