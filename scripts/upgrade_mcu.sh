@@ -122,6 +122,7 @@ fi
 
 # 2. 状态记录与退出恢复钩子
 STOPPED_SERVICE=""
+STOPPED_W152D_AGENT="false"
 STOPPED_RAW_CMD=""
 STOPPED_BRIDGE_SERVICE=""
 STOPPED_BRIDGE_ARGV=()
@@ -155,7 +156,10 @@ cleanup() {
         fi
     fi
 
-    if [[ -n "$STOPPED_SERVICE" ]]; then
+    if [[ "$STOPPED_W152D_AGENT" == "true" ]]; then
+        log_info "恢复 W152D micro-ROS Agent 守护进程..."
+        run_root /usr/local/sbin/w152d-microros-agent start || log_warn "启动 w152d-microros-agent 失败，请手动检查"
+    elif [[ -n "$STOPPED_SERVICE" ]]; then
         log_info "恢复 systemd 服务: ${STOPPED_SERVICE}"
         run_root systemctl start "$STOPPED_SERVICE" || log_warn "启动 ${STOPPED_SERVICE} 失败，请手动检查"
     elif [[ -n "$STOPPED_RAW_CMD" ]]; then
@@ -348,7 +352,15 @@ stop_agent_if_needed() {
         return 0
     fi
 
-    if command -v systemctl >/dev/null 2>&1; then
+    if [[ -x /usr/local/sbin/w152d-microros-agent ]] && /usr/local/sbin/w152d-microros-agent status >/dev/null 2>&1; then
+        log_info "暂停 W152D micro-ROS Agent 守护进程..."
+        run_root /usr/local/sbin/w152d-microros-agent stop
+        STOPPED_W152D_AGENT="true"
+        sleep 0.5
+        return 0
+    fi
+
+    if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then
         local candidates=()
         if [[ -n "$AGENT_SERVICE" ]]; then
             candidates+=("$AGENT_SERVICE")
