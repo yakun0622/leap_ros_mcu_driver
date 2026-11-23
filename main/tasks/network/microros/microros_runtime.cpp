@@ -478,6 +478,12 @@ void microros_runtime_loop(void) {
                 ESP_LOGW(kTag, "micro-ROS transport stopped; recreating session");
                 destroy_ros_entities();
                 vTaskDelay(pdMS_TO_TICKS(1000));
+            } else if (use_uart &&
+                       (esp_timer_get_time() - s_last_rtos_block_us) >= net_cfg::kMicroRosMaxUnblockedRunUs) {
+                // At 100 Hz FreeRTOS tick, sub-10ms rcl_wait timeouts convert to 0 ticks.
+                // Guarantee IDLE runs periodically so Task WDT never starves under 50 Hz UART load.
+                vTaskDelay(1);
+                s_last_rtos_block_us = esp_timer_get_time();
             }
         } else {
             if (s_ros_created) {

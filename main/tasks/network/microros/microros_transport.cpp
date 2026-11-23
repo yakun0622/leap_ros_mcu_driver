@@ -66,6 +66,7 @@ extern "C" size_t transport_read_udp(
 }
 
 static int64_t s_uart_tx_wire_free_us = 0;
+int64_t s_last_rtos_block_us = 0;
 
 static bool ensure_uart_driver_initialized(UartTransportContext *ctx) {
     if (ctx == nullptr) {
@@ -73,6 +74,7 @@ static bool ensure_uart_driver_initialized(UartTransportContext *ctx) {
     }
 
     s_uart_tx_wire_free_us = 0;
+    s_last_rtos_block_us = esp_timer_get_time();
     if (s_uart_transport_initialized && uart_is_driver_installed(ctx->port)) {
         uart_flush_input(ctx->port);
         return true;
@@ -204,8 +206,17 @@ static size_t transport_read_uart(
     const int wait_ms = timeout <= 0
         ? 0
         : (timeout > net_cfg::kMicroRosUartReadMaxWaitMs ? net_cfg::kMicroRosUartReadMaxWaitMs : timeout);
-    const int received = uart_read_bytes(ctx->port, buf, len, pdMS_TO_TICKS(wait_ms));
-    taskYIELD();
+    TickType_t wait_ticks = pdMS_TO_TICKS(wait_ms);
+    if (wait_ms > 0 && wait_ticks == 0 &&
+        (esp_timer_get_time() - s_last_rtos_block_us) >= net_cfg::kMicroRosMaxUnblockedRunUs) {
+        wait_ticks = 1;
+    }
+    const int received = uart_read_bytes(ctx->port, buf, len, wait_ticks);
+    if (wait_ticks > 0) {
+        s_last_rtos_block_us = esp_timer_get_time();
+    } else {
+        taskYIELD();
+    }
     return received > 0 ? static_cast<size_t>(received) : 0;
 }
 

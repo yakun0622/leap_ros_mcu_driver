@@ -125,6 +125,7 @@ extern bool s_clock_initialized;
 extern bool s_timer_initialized;
 extern bool s_wait_set_initialized;
 extern uint32_t s_publish_tick;
+extern int64_t s_last_rtos_block_us;
 extern char s_host_info_data[ros_cfg::kHostInfoTextCapacity];
 extern char s_wifi_config_data[ros_cfg::kWifiConfigTextCapacity];
 extern char s_last_wifi_config_ssid[33];
