@@ -54,6 +54,14 @@ static void set_lidar_pwm_duty(uint32_t duty) {
              100.0 * duty / kPwmFullDuty);
 }
 
+void lidar_latch_external_pwm_for_standby(void) {
+    start_lidar_pwm();
+}
+
+void lidar_stop_motor_for_standby(void) {
+    set_lidar_pwm_duty(0);
+}
+
 static int baud_rate(LidarModel model) {
     return model == LidarModel::kStl26 ? net_cfg::kLidarBaudRate : net_cfg::kCamsenseLidarBaudRate;
 }

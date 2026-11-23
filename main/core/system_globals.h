@@ -86,6 +86,8 @@ void peripheral_task(void *p);
 void mavlink_udp_task(void *pvParameters);
 void mavlink_uart_task(void *pvParameters);
 void lidar_task(void *p);
+void lidar_latch_external_pwm_for_standby(void);
+void lidar_stop_motor_for_standby(void);
 void wifi_provision_task(void *pvParameters);
 void espnow_task(void *p); // <--- 新增 ESP-NOW 任务声明
 void gamepad_i2c_task(void *p);

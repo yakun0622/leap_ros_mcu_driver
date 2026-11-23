@@ -168,7 +168,42 @@ static void create_runtime_queues(void) {
     system_globals().queues.positionpid_cmd = xQueueCreate(1, sizeof(PidMsg));
 }
 
+static void hold_actuators_quiet_for_standby(void) {
+    const gpio_num_t quiet_pins[] = {
+        leap_config::board::kMotorLeftIn1,
+        leap_config::board::kMotorLeftIn2,
+        leap_config::board::kMotorRightIn1,
+        leap_config::board::kMotorRightIn2,
+        leap_config::board::kServoPin,
+        leap_config::board::kUltrasonicTrigPin,
+    };
+
+    uint64_t mask = 0;
+    for (size_t i = 0; i < sizeof(quiet_pins) / sizeof(quiet_pins[0]); ++i) {
+        if (quiet_pins[i] != GPIO_NUM_NC) {
+            gpio_set_level(quiet_pins[i], 0);
+            mask |= (1ULL << static_cast<uint32_t>(quiet_pins[i]));
+        }
+    }
+
+    if (mask != 0) {
+        gpio_config_t io_conf = {};
+        io_conf.pin_bit_mask = mask;
+        io_conf.mode = GPIO_MODE_OUTPUT;
+        io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+        io_conf.intr_type = GPIO_INTR_DISABLE;
+        (void)gpio_config(&io_conf);
+        for (size_t i = 0; i < sizeof(quiet_pins) / sizeof(quiet_pins[0]); ++i) {
+            if (quiet_pins[i] != GPIO_NUM_NC) {
+                gpio_set_level(quiet_pins[i], 0);
+            }
+        }
+    }
+}
+
 static void wait_for_chassis_power_ready(void) {
+    hold_actuators_quiet_for_standby();
     status_led.Init();
     io0_button.Init();
     if (battery_adc.Init() != ESP_OK) {
@@ -180,13 +215,23 @@ static void wait_for_chassis_power_ready(void) {
         return;
     }
 
-    ESP_LOGW(TAG, "USB standby (%.2fV < %.2fV): waiting for chassis battery switch or BOOT press",
+    ESP_LOGW(TAG, "USB standby (%.2fV < %.2fV): parking lidar and waiting for chassis battery switch or BOOT press",
              initial.battery_voltage_v, leap_config::board::kBatteryPowerGoodVoltageV);
+    // LD STL26 defaults to internal spin unless it sees a ~50% duty external PWM
+    // waveform for >100 ms after its own MCU boots, after which 0% duty stops it.
+    lidar_latch_external_pwm_for_standby();
     status_led.SetMode(StatusLedMode::kSlowBlink);
 
+    bool lidar_parked = false;
+    uint32_t standby_loops = 0;
     uint8_t good_samples = 0;
     uint8_t tick_divider = 0;
     while (true) {
+        if (!lidar_parked && ++standby_loops >= 14U) {
+            lidar_stop_motor_for_standby();
+            lidar_parked = true;
+        }
+
         status_led.Update(xTaskGetTickCount());
         if (io0_button.Update() && io0_button.IsPressed()) {
             while (io0_button.IsPressed()) {
