@@ -31,9 +31,9 @@ static constexpr size_t kMicroRosUartRxBufferSize = 4096;
 static constexpr size_t kMicroRosUartTxBufferSize = 8192;
 static constexpr int kMicroRosUartReadMaxWaitMs = 20;
 static constexpr uint32_t kMicroRosUartStartupDelayMs = 500;
-static constexpr size_t kMicroRosUartTxPacingChunkBytes = 64;
-static constexpr uint32_t kMicroRosUartTxPacingGapUs = 140;
-static constexpr uint32_t kMicroRosUartTxFlushTimeoutMs = 20;
+static constexpr size_t kMicroRosUartTxPacingChunkBytes = 32;
+static constexpr uint32_t kMicroRosUartTxFullChunkGapUs = 75;
+static constexpr uint32_t kMicroRosUartTxShortChunkGapUs = 35;
 
 static constexpr uart_port_t kMavlinkUartPort = UART_NUM_0;
 static constexpr gpio_num_t kMavlinkUartTxPin = GPIO_NUM_43;

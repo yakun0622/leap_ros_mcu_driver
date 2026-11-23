@@ -65,14 +65,14 @@ extern "C" size_t transport_read_udp(
     return received > 0 ? static_cast<size_t>(received) : 0;
 }
 
-static size_t s_uart_unpaced_tx_bytes = 0;
+static int64_t s_uart_tx_wire_free_us = 0;
 
 static bool ensure_uart_driver_initialized(UartTransportContext *ctx) {
     if (ctx == nullptr) {
         return false;
     }
 
-    s_uart_unpaced_tx_bytes = 0;
+    s_uart_tx_wire_free_us = 0;
     if (s_uart_transport_initialized && uart_is_driver_installed(ctx->port)) {
         uart_flush_input(ctx->port);
         return true;
@@ -160,11 +160,15 @@ static size_t transport_write_uart(
     auto *ctx = static_cast<UartTransportContext *>(transport->args);
     size_t offset = 0;
     while (offset < len) {
-        const size_t room = (s_uart_unpaced_tx_bytes < net_cfg::kMicroRosUartTxPacingChunkBytes)
-            ? (net_cfg::kMicroRosUartTxPacingChunkBytes - s_uart_unpaced_tx_bytes)
-            : net_cfg::kMicroRosUartTxPacingChunkBytes;
         const size_t remain = len - offset;
-        const size_t chunk = remain < room ? remain : room;
+        const size_t chunk = remain < net_cfg::kMicroRosUartTxPacingChunkBytes
+            ? remain
+            : net_cfg::kMicroRosUartTxPacingChunkBytes;
+
+        const int64_t now_us = esp_timer_get_time();
+        if (s_uart_tx_wire_free_us > now_us) {
+            esp_rom_delay_us(static_cast<uint32_t>(s_uart_tx_wire_free_us - now_us));
+        }
 
         const int written = uart_write_bytes(
             ctx->port, reinterpret_cast<const char *>(buf + offset), chunk);
@@ -172,14 +176,16 @@ static size_t transport_write_uart(
             break;
         }
 
+        // At 921600 8N1 (10 bits/byte), 1 byte takes ~10.851 us on the wire.
+        // Never allow more than 32 bytes (1 CH340 Full-Speed USB packet) in
+        // flight before holding TX idle so CH340's 32-byte FIFO cannot overrun.
+        const int64_t wire_us =
+            (static_cast<int64_t>(written) * 10851LL + 999LL) / 1000LL;
+        const int64_t gap_us = (static_cast<size_t>(written) >= 24U)
+            ? static_cast<int64_t>(net_cfg::kMicroRosUartTxFullChunkGapUs)
+            : static_cast<int64_t>(net_cfg::kMicroRosUartTxShortChunkGapUs);
+        s_uart_tx_wire_free_us = esp_timer_get_time() + wire_us + gap_us;
         offset += static_cast<size_t>(written);
-        s_uart_unpaced_tx_bytes += static_cast<size_t>(written);
-        if (s_uart_unpaced_tx_bytes >= net_cfg::kMicroRosUartTxPacingChunkBytes) {
-            (void)uart_wait_tx_done(
-                ctx->port, pdMS_TO_TICKS(net_cfg::kMicroRosUartTxFlushTimeoutMs));
-            esp_rom_delay_us(net_cfg::kMicroRosUartTxPacingGapUs);
-            s_uart_unpaced_tx_bytes = 0;
-        }
     }
     return offset;
 }
