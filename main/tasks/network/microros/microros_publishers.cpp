@@ -197,7 +197,8 @@ void publish_state_timer(rcl_timer_t *timer, int64_t) {
     }
 
     ++s_publish_tick;
-    if ((s_publish_tick % ros_cfg::kWifiConfigPublishTicks) == 0) {
+    const uint32_t slow_slot = s_publish_tick % ros_cfg::kSlowPublishDivider;
+    if ((s_publish_tick % ros_cfg::kWifiConfigPublishTicks) == 3) {
         publish_wifi_config();
     }
     int64_t stamp_ms = 0;
@@ -205,11 +206,13 @@ void publish_state_timer(rcl_timer_t *timer, int64_t) {
         publish_odom(stamp_ms);
         publish_imu(stamp_ms);
 
-        if ((s_publish_tick % ros_cfg::kSlowPublishDivider) == 0) {
+        if (slow_slot == 0) {
             publish_battery(stamp_ms);
+        } else if (slow_slot == 1) {
             publish_ultrasonic(stamp_ms);
-            // The scan spans IP fragments. Send it last so smaller messages do
-            // not overtake it in the shared best-effort XRCE stream.
+        } else if (slow_slot == 2) {
+            // Send the 1.5 KB scan on its own slow slot so it does not stack
+            // with battery, ultrasonic, and wifi_config on the same 20 ms tick.
             publish_scan(stamp_ms);
         }
     }

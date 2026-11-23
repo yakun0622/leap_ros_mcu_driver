@@ -65,11 +65,14 @@ extern "C" size_t transport_read_udp(
     return received > 0 ? static_cast<size_t>(received) : 0;
 }
 
+static size_t s_uart_unpaced_tx_bytes = 0;
+
 static bool ensure_uart_driver_initialized(UartTransportContext *ctx) {
     if (ctx == nullptr) {
         return false;
     }
 
+    s_uart_unpaced_tx_bytes = 0;
     if (s_uart_transport_initialized && uart_is_driver_installed(ctx->port)) {
         uart_flush_input(ctx->port);
         return true;
@@ -155,9 +158,30 @@ static size_t transport_write_uart(
     }
 
     auto *ctx = static_cast<UartTransportContext *>(transport->args);
-    const int written = uart_write_bytes(
-        ctx->port, reinterpret_cast<const char *>(buf), len);
-    return written > 0 ? static_cast<size_t>(written) : 0;
+    size_t offset = 0;
+    while (offset < len) {
+        const size_t room = (s_uart_unpaced_tx_bytes < net_cfg::kMicroRosUartTxPacingChunkBytes)
+            ? (net_cfg::kMicroRosUartTxPacingChunkBytes - s_uart_unpaced_tx_bytes)
+            : net_cfg::kMicroRosUartTxPacingChunkBytes;
+        const size_t remain = len - offset;
+        const size_t chunk = remain < room ? remain : room;
+
+        const int written = uart_write_bytes(
+            ctx->port, reinterpret_cast<const char *>(buf + offset), chunk);
+        if (written <= 0) {
+            break;
+        }
+
+        offset += static_cast<size_t>(written);
+        s_uart_unpaced_tx_bytes += static_cast<size_t>(written);
+        if (s_uart_unpaced_tx_bytes >= net_cfg::kMicroRosUartTxPacingChunkBytes) {
+            (void)uart_wait_tx_done(
+                ctx->port, pdMS_TO_TICKS(net_cfg::kMicroRosUartTxFlushTimeoutMs));
+            esp_rom_delay_us(net_cfg::kMicroRosUartTxPacingGapUs);
+            s_uart_unpaced_tx_bytes = 0;
+        }
+    }
+    return offset;
 }
 
 static size_t transport_read_uart(
