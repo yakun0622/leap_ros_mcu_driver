@@ -13,6 +13,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "i2c_bus_lock.h"
+#include "microros_runtime.h"
 #include "pid_config.h"
 #include "msg/gamepad_msg.h"
 #include "msg/imu_msg.h"
@@ -167,6 +168,57 @@ static void create_runtime_queues(void) {
     system_globals().queues.positionpid_cmd = xQueueCreate(1, sizeof(PidMsg));
 }
 
+static void wait_for_chassis_power_ready(void) {
+    status_led.Init();
+    io0_button.Init();
+    if (battery_adc.Init() != ESP_OK) {
+        return;
+    }
+
+    const BatteryAdcReading initial = battery_adc.Read();
+    if (!initial.valid || initial.battery_voltage_v >= leap_config::board::kBatteryPowerGoodVoltageV) {
+        return;
+    }
+
+    ESP_LOGW(TAG, "USB standby (%.2fV < %.2fV): waiting for chassis battery switch or BOOT press",
+             initial.battery_voltage_v, leap_config::board::kBatteryPowerGoodVoltageV);
+    status_led.SetMode(StatusLedMode::kSlowBlink);
+
+    uint8_t good_samples = 0;
+    uint8_t tick_divider = 0;
+    while (true) {
+        status_led.Update(xTaskGetTickCount());
+        if (io0_button.Update() && io0_button.IsPressed()) {
+            while (io0_button.IsPressed()) {
+                vTaskDelay(pdMS_TO_TICKS(20));
+                io0_button.Update();
+            }
+            ESP_LOGI(TAG, "BOOT button pressed; bypassing battery standby gate");
+            break;
+        }
+
+        if ((++tick_divider % 4U) == 0U) {
+            const BatteryAdcReading reading = battery_adc.Read();
+            if (!reading.valid) {
+                break;
+            }
+            if (reading.battery_voltage_v >= leap_config::board::kBatteryPowerGoodVoltageV) {
+                if (++good_samples >= 2U) {
+                    ESP_LOGI(TAG, "Chassis battery detected (%.2fV); settling %u ms before init",
+                             reading.battery_voltage_v,
+                             static_cast<unsigned>(leap_config::board::kBatteryPowerSettleMs));
+                    vTaskDelay(pdMS_TO_TICKS(leap_config::board::kBatteryPowerSettleMs));
+                    break;
+                }
+            } else {
+                good_samples = 0;
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
 void app_runtime_startup(void) {
     if (s_runtime_started) {
         return;
@@ -181,7 +233,13 @@ void app_runtime_startup(void) {
 
     init_device_name();
     init_runtime_config();
+    if (system_globals().runtime.wifi_comm_mode == WifiCommMode::kMicroRosUart) {
+        // Mute UART0 console logs immediately so 230400-baud startup text never
+        // corrupts the 921600-baud XRCE-DDS serial stream on the host Agent.
+        microros_set_uart_log_muted(true);
+    }
     init_pid_config();
+    wait_for_chassis_power_ready();
     shared_i2c_bus_lock_init();
     board_init();
     err = camera_i2c_client_init(leap_config::board::kImuI2cPort, CAMERA_I2C_DEFAULT_ADDRESS);

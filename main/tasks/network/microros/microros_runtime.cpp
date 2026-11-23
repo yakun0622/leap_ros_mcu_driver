@@ -69,6 +69,12 @@ static bool create_ros_entities() {
     MICROROS_RCCHECK(rcl_init_options_init(&s_init_options, s_allocator));
     s_init_options_initialized = true;
 
+    rmw_init_options_t *rmw_options = rcl_init_options_get_rmw_init_options(&s_init_options);
+    if (rmw_options != nullptr) {
+        const uint32_t random_key = (esp_random() ^ static_cast<uint32_t>(esp_timer_get_time())) | 1U;
+        (void)rmw_uros_options_set_client_key(random_key, rmw_options);
+    }
+
     const rmw_ret_t ping_ret = rmw_uros_ping_agent(ros_cfg::kInitialAgentPingTimeoutMs, ros_cfg::kInitialAgentPingAttempts);
     if (ping_ret != RMW_RET_OK) {
         // ESP_LOGW(kTag, "micro-ROS agent unavailable: %s:%u",
@@ -414,6 +420,10 @@ static void set_uart_console_log_muted(bool muted) {
 }
 
 }  // namespace microros
+
+void microros_set_uart_log_muted(bool muted) {
+    microros::set_uart_console_log_muted(muted);
+}
 
 void microros_runtime_loop(void) {
     using namespace microros;

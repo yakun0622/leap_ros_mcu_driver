@@ -40,6 +40,8 @@ static constexpr uint32_t kLidarPwmFrequencyHz = 24000;
 static constexpr uint32_t kLidarTargetSpeedDegPerSec = 2808;
 static constexpr uint8_t kGamepadI2cAddress = 0x50;
 static constexpr uint32_t kBatterySamplePeriodMs = 500;
+static constexpr float kBatteryPowerGoodVoltageV = 5.2f;
+static constexpr uint32_t kBatteryPowerSettleMs = 500;
 static constexpr uint32_t kBootWifiResetLongPressMs = 3000;
 static constexpr uint32_t kTemperatureSamplePeriodMs = 1000;
 
